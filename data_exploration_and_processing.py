@@ -16,6 +16,12 @@ curr_dir = os.path.abspath('')
 zipfile = "Telco-Customer-Churn.zip"
 zip_path = os.path.join(curr_dir,zipfile)
 
+def head(df,n=5):
+    return df.head(n)
+
+def tail(df,n=5):
+    return df.tail(n)
+
 def extract_zip(zip_path: str) -> None:
     try:
         with ZipFile(zip_path, "r") as zf:  
