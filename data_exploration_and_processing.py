@@ -16,6 +16,7 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel
+from sklearn.model_selection import train_test_split
 
 curr_dir = os.path.abspath('')
 zipfile = "Telco-Customer-Churn.zip"
@@ -23,33 +24,31 @@ zip_path = os.path.join(curr_dir,zipfile)
 
 class DataFrameSelector(BaseEstimator, TransformerMixin):
     
-    def __init__(self, attribute_names: List[str]) -> None:
-         self.attribute_names = attribute_names
+    def __init__(self, feature_names: List[str]) -> None:
+         self.feature_names = feature_names
 
     def fit(self, X, y=None):
         # Nothing to be fitted
         return self
     
     def transform(self, X):
-        return X[self.attribute_names]
+        return X[self.feature_names]
 
 class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
     def __init__(self):
-        pass
+        self.corr_cols = []
     
-    def fit(self, X, y=None):
-        # Nothing to be fitted
-        return self
-
-    def transform(self, X: pd.DataFrame, threshold: float = 0.7):
+    def fit(self, X, y=None, threshold: float = 0.7):
         try:
             corrs = X.corr()
         except:
             print("Works only with numerical features.")
             return None
-        
-        corr_cols = self._find_correlated_columns(corrs)
-        return self._drop_columns(X, corr_cols)
+        self.corr_cols = self._find_correlated_columns(corrs)
+        return self
+
+    def transform(self, X: pd.DataFrame):
+        return self._drop_columns(X, self.corr_cols)
         
     @staticmethod
     def _find_correlated_columns(corr_df: pd.DataFrame, threshold: float = 0.7) -> List[str]:
@@ -63,6 +62,39 @@ class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
     @staticmethod
     def _drop_columns(df, columns):
         return df.drop(columns,axis=1)
+
+class CategoricalEncoder(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+    
+    def fit(self, X, y=None):
+        # Nothing to be fitted
+        return self
+    
+    def transform(self, X):
+        X_ = X.copy(deep=True)
+        for col in X_.columns:
+            if X_[col].nunique() == 2:
+                X_[col] = pd.factorize(X_[col])[0]
+            else:
+                X_ = pd.get_dummies(X_, columns=[col], drop_first=True)
+        return X_
+
+class ColumnValueReplacer(BaseEstimator, TransformerMixin):
+    def __init__(self, col, mapping_dict):
+        self.col = col
+        self.mapping_dict = mapping_dict
+    
+    def fit(self, X, y=None):
+        # Nothing to be fitted
+        return self
+    
+    def transform(self, X):
+        return self._replace_values_in_column(X, self.col, self.mapping_dict)
+    
+    @staticmethod
+    def _replace_values_in_column(df: pd.DataFrame, col: str, mapping_dict: dict) -> None:
+        return df.replace({col: mapping_dict},inplace=False)
 
 def head(df,n=5):
     return df.head(n)
@@ -120,14 +152,7 @@ def create_barplot(df: pd.DataFrame, column: str, save: bool = False, *, save_fo
             os.makedirs(save_folder)
         plt.savefig(os.path.join(save_folder,filename))
         
-def replace_values_in_column(df: pd.DataFrame, col: str, mapping_dict: dict) -> None:
-    df.replace({col: mapping_dict},inplace=True)
 
-# def compute_correlations(df: pd.DataFrame) -> None:
-#     # Factorize for simplicity, we only care about changes in the values, not the values themselves
-#     factorized_df = df.apply(lambda x: pd.factorize(x)[0])
-#     correlations = factorized_df.corr()
-#     return correlations
 
 def create_heatmap(mat, save: bool = False, *, save_folder: str = "", filename: str = ""):
     plt.figure(figsize=(15, 10))
@@ -137,14 +162,6 @@ def create_heatmap(mat, save: bool = False, *, save_folder: str = "", filename: 
         if not os.path.isdir(save_folder):
             os.makedirs(save_folder)
         plt.savefig(os.path.join(save_folder,filename))
-        
-# def find_correlated_columns(corr_df: pd.DataFrame, threshold: float = 0.7) -> List[str]:
-#     corr_cols = set()
-#     for i in range(len(corr_df.columns)):
-#         for j in range(i):
-#             if corr_df.iloc[i,j] > threshold:
-#               corr_cols.add(corr_df.columns[i])
-#     return list(corr_cols)
 
 def separate_numerical_and_categorical_features(df: pd.DataFrame) -> Tuple[List[str],List[str]]:
     # Numerical columns
@@ -157,6 +174,9 @@ def separate_numerical_and_categorical_features(df: pd.DataFrame) -> Tuple[List[
     
     assert len(num_cols) + len(cat_cols) == len(df.columns), print("Some columns are missing!")
     return num_cols, cat_cols
+
+def encode_y(y):
+    return pd.factorize(y)[0]
 
 ########################################################################
 if __name__ == "__main__":
@@ -177,35 +197,59 @@ if __name__ == "__main__":
     
     create_piechart(df["Churn"].value_counts())
     
-    num_cols, cat_cols = separate_numerical_and_categorical_features(df)
+    X, y = df.drop(["Churn"],axis=1), df["Churn"]
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y, random_state=42)
+    
+    num_cols, cat_cols = separate_numerical_and_categorical_features(X_train)
+    
+    df_viz = pd.concat([X_train,y_train],axis=1)
     
     for col in num_cols:
-        create_kdeplot(df,col)
+        create_kdeplot(df_viz,col)
     
     for col in cat_cols:
         if col == "customerID" or col == "Churn": continue
-        create_barplot(df,col)
+        create_barplot(df_viz,col)
         
     mapping_dict_PaymentMethod = {'Electronic check': 'EC', 
                                   'Mailed check': 'MC', 
                                   'Bank transfer (automatic)': 'BT', 
                                   'Credit card (automatic)': 'CC'}
     
-    replace_values_in_column(df, "PaymentMethod", mapping_dict_PaymentMethod)
+    #replace_values_in_column(df, "PaymentMethod", mapping_dict_PaymentMethod)
     
-    dfs_num = DataFrameSelector(num_cols)
+    # dfs_num = DataFrameSelector(num_cols)
+    # df_num = dfs_num.fit_transform(df)
+    # create_heatmap(df_num.corr())
+    # cfr = CorrelatedFeaturesRemover()
+    # df_no_corr = cfr.fit_transform(df_num)
     
-    df_num = dfs_num.fit_transform(df)
+    # dfs_cat = DataFrameSelector(cat_cols)
+    # df_cat = dfs_cat.fit_transform(df)
+    # ce = CategoricalEncoder()
+    # df_cat_encoded = ce.fit_transform(df_cat)
     
-    dfs_cat = DataFrameSelector(cat_cols)
     
-    df_cat = dfs_cat.fit_transform(df)
     
-    #corrs = compute_correlations(df.drop(["Churn"],axis=1))
-    create_heatmap(df_num.corr())
     
-    cfr = CorrelatedFeaturesRemover()
+    pl_num = Pipeline([('sel_num',DataFrameSelector(num_cols)),
+                       ('corr_remover',CorrelatedFeaturesRemover())])
     
-    df_no_corr = cfr.fit_transform(df_num)
+    pl_cat = Pipeline([('sel_cat',DataFrameSelector(cat_cols)),
+                       ('val_rep', ColumnValueReplacer("PaymentMethod", mapping_dict_PaymentMethod)),
+                       ('encoder',CategoricalEncoder())])
     
-    #corr_columns = find_correlated_columns(corrs,0.7)
+    X_num_prepared = pl_num.fit_transform(X_train)
+    X_cat_prepared = pl_cat.fit_transform(X_train)
+    
+    X_train_prep = pd.concat([X_num_prepared,X_cat_prepared],axis=1)
+    
+    # full_pipeline = FeatureUnion(transformer_list=[("num_pipeline", pl_num),
+    #                                                ("cat_pipeline", pl_cat)])
+    
+    
+    # X_train_prep = full_pipeline.fit_transform(X_train)
+    # X_train_prep = pd.DataFrame(X_train_prep, columns=X_train.columns)
+    
+    y_train, y_test = encode_y(y_train), encode_y(y_test)
