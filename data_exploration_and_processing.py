@@ -14,6 +14,7 @@ import os
 from typing import List, Tuple
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import SelectFromModel
 from sklearn.model_selection import train_test_split
@@ -37,6 +38,7 @@ class DataFrameSelector(BaseEstimator, TransformerMixin):
 class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.corr_cols = []
+        self.feature_names = None
     
     def fit(self, X, y=None, threshold: float = 0.7):
         try:
@@ -48,7 +50,12 @@ class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X: pd.DataFrame):
-        return self._drop_columns(X, self.corr_cols)
+        X_ = self._drop_columns(X, self.corr_cols)
+        self.feature_names = X_.columns
+        return X_
+    
+    def get_feature_names(self):
+        return self.feature_names
         
     @staticmethod
     def _find_correlated_columns(corr_df: pd.DataFrame, threshold: float = 0.7) -> List[str]:
@@ -65,7 +72,7 @@ class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
 
 class CategoricalEncoder(BaseEstimator, TransformerMixin):
     def __init__(self):
-        pass
+        self.feature_names = None
     
     def fit(self, X, y=None):
         # Nothing to be fitted
@@ -78,7 +85,11 @@ class CategoricalEncoder(BaseEstimator, TransformerMixin):
                 X_[col] = pd.factorize(X_[col])[0]
             else:
                 X_ = pd.get_dummies(X_, columns=[col], drop_first=True)
+        self.feature_names = X_.columns
         return X_
+    
+    def get_feature_names(self):
+        return self.feature_names
 
 class ColumnValueReplacer(BaseEstimator, TransformerMixin):
     def __init__(self, col, mapping_dict):
@@ -178,6 +189,7 @@ def separate_numerical_and_categorical_features(df: pd.DataFrame) -> Tuple[List[
 def encode_y(y):
     return pd.factorize(y)[0]
 
+
 ########################################################################
 if __name__ == "__main__":
     
@@ -211,45 +223,48 @@ if __name__ == "__main__":
     for col in cat_cols:
         if col == "customerID" or col == "Churn": continue
         create_barplot(df_viz,col)
-        
+
+    
+    # pipeline_num = Pipeline([('sel_num',DataFrameSelector(num_cols)),
+    #                     ('corr_remover',CorrelatedFeaturesRemover())])
+    
+    # pipeline_cat = Pipeline([('sel_cat',DataFrameSelector(cat_cols)),
+    #                     ('val_rep', ColumnValueReplacer("PaymentMethod", mapping_dict_PaymentMethod)),
+    #                     ('encoder',CategoricalEncoder())])
+    
+    # X_num_prepared = pipeline_num.fit_transform(X_train)
+    # X_cat_prepared = pipeline_cat.fit_transform(X_train)
+    
+    # X_train_prep = pd.concat([X_num_prepared,X_cat_prepared],axis=1)
+    
+    # Numerical pipeline
+    pipeline_num = Pipeline([('corr_remover',CorrelatedFeaturesRemover())])
+    
+    
+    # Categorical pipeline
     mapping_dict_PaymentMethod = {'Electronic check': 'EC', 
                                   'Mailed check': 'MC', 
                                   'Bank transfer (automatic)': 'BT', 
                                   'Credit card (automatic)': 'CC'}
+    pipeline_cat = Pipeline([('val_rep', ColumnValueReplacer("PaymentMethod", mapping_dict_PaymentMethod) ), 
+                             ('encoder', CategoricalEncoder() )])
     
-    #replace_values_in_column(df, "PaymentMethod", mapping_dict_PaymentMethod)
+    # Combine pipelines
+    full_pipeline = ColumnTransformer([("num",pipeline_num,num_cols),
+                                       ("cat",pipeline_cat,cat_cols)])
     
-    # dfs_num = DataFrameSelector(num_cols)
-    # df_num = dfs_num.fit_transform(df)
-    # create_heatmap(df_num.corr())
-    # cfr = CorrelatedFeaturesRemover()
-    # df_no_corr = cfr.fit_transform(df_num)
+    # Prepare training data
+    X_train_prep = full_pipeline.fit_transform(X_train)
     
-    # dfs_cat = DataFrameSelector(cat_cols)
-    # df_cat = dfs_cat.fit_transform(df)
-    # ce = CategoricalEncoder()
-    # df_cat_encoded = ce.fit_transform(df_cat)
+    # Include columns
+    prep_cols_num = full_pipeline.named_transformers_['num']['corr_remover'].get_feature_names()
+    prep_cols_cat = full_pipeline.named_transformers_['cat']['encoder'].get_feature_names()
+    prepared_columns = np.append(prep_cols_num,prep_cols_cat)
     
-    
-    
-    
-    pl_num = Pipeline([('sel_num',DataFrameSelector(num_cols)),
-                       ('corr_remover',CorrelatedFeaturesRemover())])
-    
-    pl_cat = Pipeline([('sel_cat',DataFrameSelector(cat_cols)),
-                       ('val_rep', ColumnValueReplacer("PaymentMethod", mapping_dict_PaymentMethod)),
-                       ('encoder',CategoricalEncoder())])
-    
-    X_num_prepared = pl_num.fit_transform(X_train)
-    X_cat_prepared = pl_cat.fit_transform(X_train)
-    
-    X_train_prep = pd.concat([X_num_prepared,X_cat_prepared],axis=1)
-    
-    # full_pipeline = FeatureUnion(transformer_list=[("num_pipeline", pl_num),
-    #                                                ("cat_pipeline", pl_cat)])
-    
-    
-    # X_train_prep = full_pipeline.fit_transform(X_train)
-    # X_train_prep = pd.DataFrame(X_train_prep, columns=X_train.columns)
-    
+    X_train_prep = pd.DataFrame(X_train_prep, columns = prepared_columns)
+                                
+    # Encode responses
     y_train, y_test = encode_y(y_train), encode_y(y_test)
+    
+    # Transform test data
+    X_test_prep = full_pipeline.transform(X_test)
