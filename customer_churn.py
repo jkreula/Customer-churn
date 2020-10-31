@@ -8,7 +8,7 @@ Created on Mon Oct 26 16:32:10 2020
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+import seaborn as sns ; sns.set()
 from zipfile import ZipFile
 import os
 from typing import List, Tuple
@@ -30,25 +30,25 @@ zip_path = os.path.join(curr_dir,zipfile)
 
 class CategoricalEncoder(BaseEstimator, TransformerMixin):
     def __init__(self):
-        self.feature_names = None
+        self._feature_names = None
     
     def fit(self, X, y=None):
         # Nothing to be fitted
         return self
     
     def transform(self, X):
-        X_ = X.copy(deep=True)
-        X_ = pd.get_dummies(X_, drop_first=True)
-        self.feature_names = X_.columns
+        X_ = pd.get_dummies(X, drop_first=True)
+        self._feature_names = X_.columns
         return X_
     
-    def get_feature_names(self):
-        return self.feature_names
+    @property
+    def feature_names(self):
+        return self._feature_names
     
 class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
     def __init__(self):
-        self.corr_cols = []
-        self.feature_names = None
+        self._corr_cols = []
+        self._feature_names = None
     
     def fit(self, X, y=None, threshold: float = 0.7):
         try:
@@ -56,16 +56,17 @@ class CorrelatedFeaturesRemover(BaseEstimator, TransformerMixin):
         except:
             print("Works only with numerical features.")
             return None
-        self.corr_cols = self._find_correlated_columns(corrs)
+        self._corr_cols = self._find_correlated_columns(corrs)
         return self
 
     def transform(self, X: pd.DataFrame):
-        X_ = self._drop_columns(X, self.corr_cols)
-        self.feature_names = X_.columns
+        X_ = self._drop_columns(X, self._corr_cols)
+        self._feature_names = X_.columns
         return X_
     
-    def get_feature_names(self):
-        return self.feature_names
+    @property
+    def feature_names(self):
+        return self._feature_names
         
     @staticmethod
     def _find_correlated_columns(corr_df: pd.DataFrame, threshold: float = 0.7) -> List[str]:
@@ -102,11 +103,11 @@ def print_summaries(df):
     
 def create_piechart(ser: pd.Series, title: str = "", save: bool = False, *, save_folder: str = "", filename: str = "") -> None:
     ser.plot(kind="pie", title = title, autopct = "%.1f%%")
-    plt.show()
     if save:
         if not os.path.isdir(save_folder):
             os.makedirs(save_folder)
-        plt.savefig(os.path.join(save_folder,filename))    
+        plt.savefig(os.path.join(save_folder,filename)) 
+    plt.show()
     
 def create_kdeplot(df: pd.DataFrame, column: str, save: bool = False, *, save_folder: str = "", filename: str = "") -> None:
     yes = df[df["Churn"]==1][column]
@@ -117,11 +118,11 @@ def create_kdeplot(df: pd.DataFrame, column: str, save: bool = False, *, save_fo
     plt.title(f"Churn for {column}")
     plt.xlabel(f"{column}")
     plt.ylabel("KDE")
-    plt.show()
     if save:
         if not os.path.isdir(save_folder):
             os.makedirs(save_folder)
         plt.savefig(os.path.join(save_folder,filename))
+    plt.show()
     
 def create_barplot(df: pd.DataFrame, column: str, save: bool = False, *, save_folder: str = "", filename: str = "") -> None:
     df_plot = df.groupby(column)["Churn"].value_counts().to_frame()
@@ -132,20 +133,20 @@ def create_barplot(df: pd.DataFrame, column: str, save: bool = False, *, save_fo
     sns.barplot(x=column, y=new_col_name, data = df_plot, hue = "Churn")
     if column == "PaymentMethod":
         plt.xticks(rotation=90)
-    plt.show()
     if save:
         if not os.path.isdir(save_folder):
             os.makedirs(save_folder)
         plt.savefig(os.path.join(save_folder,filename))
+    plt.show()
         
 def create_heatmap(mat, save: bool = False, *, save_folder: str = "", filename: str = ""):
     plt.figure(figsize=(15, 10))
     sns.heatmap(mat,annot=True)
-    plt.show()
     if save:
         if not os.path.isdir(save_folder):
             os.makedirs(save_folder)
         plt.savefig(os.path.join(save_folder,filename))
+    plt.show()
 
 def separate_numerical_and_categorical_features(df: pd.DataFrame) -> Tuple[List[str],List[str]]:
     # Numerical columns
@@ -172,28 +173,36 @@ if __name__ == "__main__":
     df.dropna(inplace=True)
     df.reset_index(inplace=True,drop=True)
     
-    df["Churn"].replace({'Yes': 1, 'No': 0},inplace=True)
-    
+    df["Churn"].replace({'Yes': 1, 'No': 0},inplace=True)    
     df['SeniorCitizen'] = df['SeniorCitizen'].astype('category')
     
+    # Extract numerical and categorical features
+    num_cols, cat_cols = separate_numerical_and_categorical_features(df)
+    num_cols.remove('Churn')
+    
+    for col in cat_cols:
+        df[col] = df[col].astype('category')
+    
+    # Separate target and features
     y = df["Churn"].copy()
     X = df.drop(columns = ['Churn'])
     
     # Separate training and test set
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=101)
-    
-    # Extract numerical and categorical features
-    num_cols, cat_cols = separate_numerical_and_categorical_features(X_train)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=123)
     
     # Visualisations
     df_viz = pd.concat([X_train,y_train],axis=1)
 
     for col in num_cols:
-        create_kdeplot(df_viz,col)
+        save_folder = os.path.join(curr_dir,"Figures")
+        filename = col+ ".pdf"
+        create_kdeplot(df_viz,col,save=True,save_folder=save_folder,filename=filename)
     
     for col in cat_cols:
         if col == "Churn": continue
-        create_barplot(df_viz,col)    
+        save_folder = os.path.join(curr_dir,"Figures")
+        filename = col+ ".pdf"
+        create_barplot(df_viz,col,save=True,save_folder=save_folder,filename=filename)    
     
     # Numerical pipeline
     pipeline_num = Pipeline([('corr_remover',CorrelatedFeaturesRemover()),
@@ -211,8 +220,8 @@ if __name__ == "__main__":
     X_train_prep = full_pipeline.fit_transform(X_train)
     
     # Include columns
-    prep_cols_num = full_pipeline.named_transformers_['num']['corr_remover'].get_feature_names()
-    prep_cols_cat = full_pipeline.named_transformers_['cat']['encoder'].get_feature_names()
+    prep_cols_num = full_pipeline.named_transformers_['num']['corr_remover'].feature_names
+    prep_cols_cat = full_pipeline.named_transformers_['cat']['encoder'].feature_names
     prepared_columns = np.append(prep_cols_num,prep_cols_cat)
     
     X_train_prep = pd.DataFrame(X_train_prep, columns = prepared_columns, index = X_train.index)
@@ -222,7 +231,7 @@ if __name__ == "__main__":
     X_test_prep = pd.DataFrame(X_test_prep, columns = prepared_columns, index = X_test.index)
     
     
-    # Train models
+    # Train models (to be tuned...)
     lr = LogisticRegression()
     rf = RandomForestClassifier(random_state = 42)
     hgb = HistGradientBoostingClassifier()
