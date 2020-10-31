@@ -26,7 +26,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score, recall_score, f1_scor
 
 curr_dir = os.path.abspath('')
 zipfile = "Telco-Customer-Churn.zip"
-zip_path = os.path.join(curr_dir,zipfile)
+zip_path = os.path.join(curr_dir,"Data",zipfile)
 
 class CategoricalEncoder(BaseEstimator, TransformerMixin):
     def __init__(self):
@@ -87,10 +87,10 @@ def head(df,n=5):
 def tail(df,n=5):
     return df.tail(n)
 
-def extract_zip(zip_path: str) -> None:
+def extract_zip(zip_path: str, extract_path: str) -> None:
     try:
         with ZipFile(zip_path, "r") as zf:  
-            zf.extractall()
+            zf.extractall(extract_path)
     except:
         print(f"Error in extracting zip file at {zip_path}!")       
 
@@ -161,8 +161,9 @@ def separate_numerical_and_categorical_features(df: pd.DataFrame) -> Tuple[List[
 
 if __name__ == "__main__":
 
-    extract_zip(zip_path)
-    df = pd.read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv")
+    extract_path = os.path.join(curr_dir,"Data")
+    extract_zip(zip_path, extract_path)
+    df = pd.read_csv(os.path.join(curr_dir,"Data","WA_Fn-UseC_-Telco-Customer-Churn.csv"))
     print(df.info())
     df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors = 'coerce')
     if df["customerID"].is_unique:
