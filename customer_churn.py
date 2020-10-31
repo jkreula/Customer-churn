@@ -195,13 +195,13 @@ if __name__ == "__main__":
 
     for col in num_cols:
         save_folder = os.path.join(curr_dir,"Figures")
-        filename = col+ ".pdf"
+        filename = col + ".pdf"
         create_kdeplot(df_viz,col,save=True,save_folder=save_folder,filename=filename)
     
     for col in cat_cols:
         if col == "Churn": continue
         save_folder = os.path.join(curr_dir,"Figures")
-        filename = col+ ".pdf"
+        filename = col + ".pdf"
         create_barplot(df_viz,col,save=True,save_folder=save_folder,filename=filename)    
     
     # Numerical pipeline
